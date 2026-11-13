@@ -8,7 +8,10 @@
 set -euo pipefail
 
 ANDROID_HOME="${ANDROID_HOME:-/usr/local/android-sdk}"
-CMDLINE_TOOLS_VERSION="12266708"   # commandlinetools-linux-12266708_latest.zip (2025)
+# commandlinetools-linux-<version>_latest.zip — must be a version that resolves (200).
+# 12266708 was a typo (404); 12266719 is the version CI's setup-android uses (verified 200).
+# Verify before changing: curl -sI https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip
+CMDLINE_TOOLS_VERSION="12266719"
 mkdir -p "$ANDROID_HOME/cmdline-tools"
 
 echo "=== [1/4] download Android command-line tools ==="
