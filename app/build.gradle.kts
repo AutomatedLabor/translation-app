@@ -158,7 +158,6 @@ dependencies {
     implementation(libs.mlkit.language.id)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
-    implementation("androidx.core:core-splashscreen:1.0.1")
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
