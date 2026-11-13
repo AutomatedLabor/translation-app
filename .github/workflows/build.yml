@@ -179,9 +179,9 @@ jobs:
           for APK in "$REL"/*.apk; do
             NAME="$(basename "$APK" .apk)"
             case "$NAME" in
-              *arm64-v8a*) ASSET="screen-translator-v2.0.2-arm64-v8a-release" ;;
-              *universal*) ASSET="screen-translator-v2.0.2-universal-release" ;;
-              *)           ASSET="screen-translator-v2.0.2-release" ;;
+              *arm64-v8a*) ASSET="screen-translator-v2.0.3-arm64-v8a-release" ;;
+              *universal*) ASSET="screen-translator-v2.0.3-universal-release" ;;
+              *)           ASSET="screen-translator-v2.0.3-release" ;;
             esac
             ( cd "$REL" && sha256sum "$(basename "$APK")" > "$ASSET.apk.sha256" )
             cp "$APK" "$STAGE/$ASSET.apk"
@@ -189,8 +189,8 @@ jobs:
             echo "staged $ASSET.apk ($(wc -c < "$STAGE/$ASSET.apk") bytes)  sha256: $(awk '{print $1}' "$STAGE/$ASSET.apk.sha256")"
           done
           # Badging from the arm64 variant (primary); fall back to universal.
-          ARM="$STAGE/screen-translator-v2.0.2-arm64-v8a-release.apk"
-          [ -f "$ARM" ] || ARM="$STAGE/screen-translator-v2.0.2-universal-release.apk"
+          ARM="$STAGE/screen-translator-v2.0.3-arm64-v8a-release.apk"
+          [ -f "$ARM" ] || ARM="$STAGE/screen-translator-v2.0.3-universal-release.apk"
           aapt dump badging "$ARM" | head -25 | tee badging.txt
 
       - name: Upload release APKs artifact
@@ -232,13 +232,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
-          tag_name: v2.0.2
-          name: "Screen Translator v2.0.2 (onboarding + security — no screen content in logcat)"
+          tag_name: v2.0.3
+          name: "Screen Translator v2.0.3 (in-app update check)"
           files: |
-            screen-translator-v2.0.2-arm64-v8a-release.apk
-            screen-translator-v2.0.2-arm64-v8a-release.apk.sha256
-            screen-translator-v2.0.2-universal-release.apk
-            screen-translator-v2.0.2-universal-release.apk.sha256
+            screen-translator-v2.0.3-arm64-v8a-release.apk
+            screen-translator-v2.0.3-arm64-v8a-release.apk.sha256
+            screen-translator-v2.0.3-universal-release.apk
+            screen-translator-v2.0.3-universal-release.apk.sha256
             apksigner-verify.txt
             badging.txt
           body: |
@@ -422,8 +422,8 @@ jobs:
 
             | APK | Size | Install on |
             |---|---|---|
-            | `screen-translator-v2.0.2-arm64-v8a-release.apk` | ~22 MB | **Any phone from ~2017** (Pixel, Samsung, OnePlus, Xiaomi, etc. — 64-bit ARM). Try this first. |
-            | `screen-translator-v2.0.2-universal-release.apk` | ~72 MB | 32-bit ARM phones (pre-2017), x86 emulators, rare x86 devices. Fallback. |
+            | `screen-translator-v2.0.3-arm64-v8a-release.apk` | ~22 MB | **Any phone from ~2017** (Pixel, Samsung, OnePlus, Xiaomi, etc. — 64-bit ARM). Try this first. |
+            | `screen-translator-v2.0.3-universal-release.apk` | ~72 MB | 32-bit ARM phones (pre-2017), x86 emulators, rare x86 devices. Fallback. |
 
             ## Install
 
@@ -446,11 +446,11 @@ jobs:
             for CI's proof.
 
             ```
-            apksigner verify --print-certs --verbose screen-translator-v2.0.2-arm64-v8a-release.apk
+            apksigner verify --print-certs --verbose screen-translator-v2.0.3-arm64-v8a-release.apk
             # expect: Verifies, v2=true, v3=true,
             #         Signer #1 certificate DN: CN=Screen Translator Release, O=AutomatedLabor, C=US
             #         Signer #1 certificate SHA-256 digest: a0b5e5f35ee134d2816a24cc467297b3024ea466f1d5d98c0104b3e8b7e27fa2
-            sha256sum -c screen-translator-v2.0.2-arm64-v8a-release.apk.sha256
+            sha256sum -c screen-translator-v2.0.3-arm64-v8a-release.apk.sha256
             ```
 
             ## Verification done by CI

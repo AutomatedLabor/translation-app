@@ -154,6 +154,7 @@ private fun ScreenTranslatorSetupScreen() {
     var showTargetDialog by remember { mutableStateOf(false) }
     var showSourceDialog by remember { mutableStateOf(false) }
     var showOnboarding by remember { mutableStateOf(!LanguagePrefs.isOnboardingCompleted(context)) }
+    var updateAvailable by remember { mutableStateOf<String?>(null) }
 
     /**
      * Live-switch the target language: persist to SharedPreferences, recreate the UI's
@@ -203,6 +204,30 @@ private fun ScreenTranslatorSetupScreen() {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 serviceEnabled = isAccessibilityServiceEnabled(context)
+                // Check for app updates (GitHub Releases API — best-effort, silent on failure).
+                scope.launch {
+                    try {
+                        val latestTag = withContext(Dispatchers.IO) {
+                            val conn = (java.net.URL("https://api.github.com/repos/AutomatedLabor/translation-app/releases/latest")
+                                .openConnection() as java.net.HttpURLConnection).apply {
+                                requestMethod = "GET"
+                                setRequestProperty("Accept", "application/vnd.github+json")
+                                connectTimeout = 5000
+                                readTimeout = 5000
+                            }
+                            if (conn.responseCode == 200) {
+                                org.json.JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                                    .optString("tag_name", "")
+                            } else ""
+                        }
+                        val currentTag = "v${com.translator.screen.BuildConfig.VERSION_NAME}"
+                        if (latestTag.isNotEmpty() && latestTag != currentTag) {
+                            updateAvailable = latestTag
+                        }
+                    } catch (e: Exception) {
+                        // Silent — update check is best-effort.
+                    }
+                }
                 // Re-query model status so users who already downloaded the model see
                 // "downloaded" on return, not the initial false. (Fresh-eyes review P1-5.)
                 scope.launch {
@@ -243,6 +268,25 @@ private fun ScreenTranslatorSetupScreen() {
                     LanguagePrefs.setOnboardingCompleted(context)
                     showOnboarding = false
                 }) { Text("Get started") }
+            }
+        )
+    }
+
+    if (updateAvailable != null) {
+        AlertDialog(
+            onDismissRequest = { updateAvailable = null },
+            title = { Text("Update available") },
+            text = { Text("A new version ($updateAvailable) is available. Download it from GitHub Releases.") },
+            confirmButton = {
+                Button(onClick = {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://github.com/AutomatedLabor/translation-app/releases/latest"))
+                    context.startActivity(intent)
+                    updateAvailable = null
+                }) { Text("Download") }
+            },
+            dismissButton = {
+                TextButton(onClick = { updateAvailable = null }) { Text("Later") }
             }
         )
     }
