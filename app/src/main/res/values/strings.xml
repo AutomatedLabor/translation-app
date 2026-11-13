@@ -21,6 +21,8 @@
 
     <string name="card_target_title">Target Language</string>
     <string name="card_target_body">German on-screen text is translated into this language. The change takes effect immediately for both the test below and the Quick Settings tile (no need to re-enable accessibility).</string>
+    <string name="card_source_title">Source Language</string>
+    <string name="card_source_body">The language to translate FROM. Use Auto-Detect to let ML Kit identify the source language automatically.</string>
 
     <string name="card_tile_title">Quick Settings Tile</string>
     <string name="card_tile_body">Pull down the shade twice → edit → drag the \"Translate Screen\" tile into the active row. Then open any German app and tap the tile to translate the screen.</string>

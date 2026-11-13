@@ -137,8 +137,9 @@ private fun ScreenTranslatorSetupScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
+    var sourceTag by remember { mutableStateOf(LanguagePrefs.getSourceTag(context)) }
     var targetTag by remember { mutableStateOf(LanguagePrefs.getTargetTag(context)) }
-    var engine by remember { mutableStateOf<ITranslationEngine>(MlKitTranslationEngine(targetTag)) }
+    var engine by remember { mutableStateOf<ITranslationEngine>(MlKitTranslationEngine(sourceTag, targetTag)) }
     DisposableEffect(Unit) { onDispose { engine.close() } }
 
     var serviceEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
@@ -151,6 +152,7 @@ private fun ScreenTranslatorSetupScreen() {
     var isTranslating by remember { mutableStateOf(false) }
     var showRestrictedHelp by remember { mutableStateOf(false) }
     var showTargetDialog by remember { mutableStateOf(false) }
+    var showSourceDialog by remember { mutableStateOf(false) }
 
     /**
      * Live-switch the target language: persist to SharedPreferences, recreate the UI's
@@ -162,11 +164,38 @@ private fun ScreenTranslatorSetupScreen() {
         if (newTag == targetTag) return
         LanguagePrefs.setTargetTag(context, newTag)
         engine.close()
-        engine = MlKitTranslationEngine(newTag)
+        engine = MlKitTranslationEngine(sourceTag, newTag)
         targetTag = newTag
         modelDownloaded = false
         testOutput = ""
         TranslatorAccessibilityService.instance?.updateTargetLanguage(newTag)
+    }
+
+    fun onSourceChange(newTag: String) {
+        if (newTag == sourceTag) return
+        LanguagePrefs.setSourceTag(context, newTag)
+        engine.close()
+        engine = MlKitTranslationEngine(newTag, targetTag)
+        sourceTag = newTag
+        modelDownloaded = false
+        testOutput = ""
+        TranslatorAccessibilityService.instance?.updateSourceLanguage(newTag)
+    }
+
+    fun onSwapLanguages() {
+        if (sourceTag == "auto") return
+        val newSource = targetTag
+        val newTarget = sourceTag
+        LanguagePrefs.setSourceTag(context, newSource)
+        LanguagePrefs.setTargetTag(context, newTarget)
+        engine.close()
+        engine = MlKitTranslationEngine(newSource, newTarget)
+        sourceTag = newSource
+        targetTag = newTarget
+        modelDownloaded = false
+        testOutput = ""
+        TranslatorAccessibilityService.instance?.updateSourceLanguage(newSource)
+        TranslatorAccessibilityService.instance?.updateTargetLanguage(newTarget)
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -274,17 +303,55 @@ private fun ScreenTranslatorSetupScreen() {
                             style = MaterialTheme.typography.titleLarge
                         )
                         Text(
-                            text = stringResource(R.string.card_target_body),
+                            text = stringResource(R.string.card_source_body),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 8.dp)
                         )
                         OutlinedButton(
-                            onClick = { showTargetDialog = true },
+                            onClick = { showSourceDialog = true },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 12.dp)
                         ) {
-                            Text("German  →  " + TargetLanguages.displayFor(targetTag))
+                            Text("From: " + TargetLanguages.displayFor(sourceTag))
+                        }
+                        OutlinedButton(
+                            onClick = { onSwapLanguages() },
+                            enabled = sourceTag != "auto",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Text("⇅ Swap")
+                        }
+                        OutlinedButton(
+                            onClick = { showTargetDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Text("To: " + TargetLanguages.displayFor(targetTag))
+                        }
+                        if (showSourceDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showSourceDialog = false },
+                                title = { Text(stringResource(R.string.card_source_title)) },
+                                text = {
+                                    Column {
+                                        TargetLanguages.ALL_SOURCE.forEach { entry ->
+                                            TextButton(
+                                                onClick = {
+                                                    onSourceChange(entry.tag)
+                                                    showSourceDialog = false
+                                                }
+                                            ) {
+                                                Text(entry.display)
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {}
+                            )
                         }
                         if (showTargetDialog) {
                             AlertDialog(

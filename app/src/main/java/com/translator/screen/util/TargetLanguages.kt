@@ -27,5 +27,8 @@ object TargetLanguages {
     )
 
     fun displayFor(tag: String): String =
-        ALL.firstOrNull { it.tag == tag }?.display ?: tag
+        if (tag == "auto") "Auto-Detect" else ALL.firstOrNull { it.tag == tag }?.display ?: tag
+
+    /** Source languages: "Auto-Detect" first, then the same list as target. */
+    val ALL_SOURCE: List<Entry> = listOf(Entry("auto", "Auto-Detect")) + ALL
 }

@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * All suspending entry points are main-safe: ML work runs on [Dispatchers.Default].
  */
 class MlKitTranslationEngine(
+  override val sourceLanguageTag: String = "auto",
   override val targetLanguageTag: String = "en",
 ) : ITranslationEngine {
 
@@ -44,6 +45,7 @@ class MlKitTranslationEngine(
   private val cache = LruCache<String, String>(500)
   private val closed = AtomicBoolean(false)
   private val initLock = Any()
+  private var cachedDetectedSource: String? = null
 
   // -------------------------------------------------------------------------
   // ITranslationEngine
@@ -60,7 +62,7 @@ class MlKitTranslationEngine(
       // (Fresh-eyes review P1-8.)
       if (closed.get()) return@launch
       runCatching {
-        getOrCreateTranslator()?.translate("hallo")?.await()
+        getOrCreateTranslator(defaultSourceLanguage())?.translate("hallo")?.await()
       }.onFailure { e ->
         Log.d(TAG, "Warmup failed: ${e.message}")
       }
@@ -122,18 +124,24 @@ class MlKitTranslationEngine(
         return@withContext true
       }
 
+      val targetLangCode = targetLanguageTag.lowercase()
       when {
-        lang == "en" && conf > 0.75f -> {
-          Log.d(TAG, "Skipped by filter: confidently English")
+        lang == targetLangCode && conf > 0.75f -> {
+          Log.d(TAG, "Skipped by filter: confidently target language ($lang)")
           false
         }
-        lang == "de" -> true
-        lang == "und" -> true // alphabetic guaranteed above
-        lang != "de" && conf > 0.75f -> {
-          Log.d(TAG, "Skipped by filter: other language=$lang conf=$conf")
-          false
+        sourceLanguageTag != "auto" -> {
+          val sourceLangCode = sourceLanguageTag.lowercase()
+          if (lang == sourceLangCode || lang == "und") {
+            true
+          } else if (conf > 0.75f) {
+            Log.d(TAG, "Skipped by filter: non-source language=$lang conf=$conf")
+            false
+          } else {
+            true
+          }
         }
-        else -> true // ambiguous, let the ML Kit translator try
+        else -> true // auto-detect: pass everything except the target language
       }
     }
 
@@ -159,7 +167,8 @@ class MlKitTranslationEngine(
       while (attempt < 2) {
         attempt++
         try {
-          val t = getOrCreateTranslator() ?: return@withContext source
+          val sourceLang = resolveSourceLanguage(source)
+          val t = getOrCreateTranslator(sourceLang) ?: return@withContext source
           val result = t.translate(source).await()
           synchronized(cache) { cache.put(key, result) }
           Log.d(TAG, "Translated: '$source' -> '$result'")
@@ -190,12 +199,13 @@ class MlKitTranslationEngine(
     withContext(Dispatchers.Default) {
       try {
         val mgr = RemoteModelManager.getInstance()
-        val deModel = TranslateRemoteModel.Builder(TranslateLanguage.GERMAN).build()
+        val sourceLang = cachedDetectedSource ?: TranslateLanguage.fromLanguageTag(sourceLanguageTag) ?: TranslateLanguage.GERMAN
+        val sourceModel = TranslateRemoteModel.Builder(sourceLang).build()
         val targetModel = TranslateRemoteModel.Builder(targetTranslateLanguage()).build()
-        val deReady = mgr.isModelDownloaded(deModel).await()
+        val sourceReady = mgr.isModelDownloaded(sourceModel).await()
         val targetReady = mgr.isModelDownloaded(targetModel).await()
-        Log.d(TAG, "isModelDownloaded: de=$deReady target=$targetReady ($targetLanguageTag)")
-        deReady && targetReady
+        Log.d(TAG, "isModelDownloaded: source=$sourceReady target=$targetReady ($sourceLanguageTag -> $targetLanguageTag)")
+        sourceReady && targetReady
       } catch (e: Exception) {
         Log.d(TAG, "isModelDownloaded failure: ${e.message}")
         false
@@ -211,7 +221,7 @@ class MlKitTranslationEngine(
       }
       Log.d(TAG, "Model download start")
       try {
-        val t = getOrCreateTranslator() ?: return@withContext
+        val t = getOrCreateTranslator(defaultSourceLanguage()) ?: return@withContext
         t.downloadModelIfNeeded(DownloadConditions.Builder().build()).await()
         Log.d(TAG, "Model download complete")
       } catch (e: Exception) {
@@ -229,6 +239,7 @@ class MlKitTranslationEngine(
       translator = null
       languageIdentifier?.close()
       languageIdentifier = null
+      cachedDetectedSource = null
     }
     synchronized(cache) {
       cache.evictAll()
@@ -242,17 +253,44 @@ class MlKitTranslationEngine(
   private fun targetTranslateLanguage(): String =
     TranslateLanguage.fromLanguageTag(targetLanguageTag) ?: TranslateLanguage.ENGLISH
 
-  private fun getOrCreateTranslator(): Translator? {
-    // P1-8: never (re)create after close(). Previously, a warmup() GlobalScope launch
-    // racing with close() would enter here, find translator==null (close() nulled it),
-    // and create a fresh Translator that nobody ever closed — a native ML Kit leak.
+  /** The default source for warmup (no text available to detect from). */
+  private fun defaultSourceLanguage(): String =
+    if (sourceLanguageTag == "auto") TranslateLanguage.GERMAN
+    else TranslateLanguage.fromLanguageTag(sourceLanguageTag) ?: TranslateLanguage.GERMAN
+
+  /** Resolve the source language for [text]. If "auto", detect via LanguageIdentification + cache. */
+  private suspend fun resolveSourceLanguage(text: String): String {
+    if (sourceLanguageTag != "auto") {
+      return TranslateLanguage.fromLanguageTag(sourceLanguageTag) ?: TranslateLanguage.GERMAN
+    }
+    cachedDetectedSource?.let { return it }
+    return withContext(Dispatchers.Default) {
+      try {
+        val identifier = getOrCreateLanguageIdentifier()
+        val langs = identifier.identifyPossibleLanguages(text).await()
+        val best = langs.maxByOrNull { it.confidence }
+        val tag = best?.languageTag?.substringBefore('-')?.lowercase() ?: "de"
+        val resolved = TranslateLanguage.fromLanguageTag(tag) ?: TranslateLanguage.GERMAN
+        cachedDetectedSource = resolved
+        Log.d(TAG, "Auto-detected source: $resolved (conf=${best?.confidence}, tag=$tag)")
+        resolved
+      } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        Log.d(TAG, "Auto-detect failed: ${e.message}; defaulting to GERMAN")
+        TranslateLanguage.GERMAN
+      }
+    }
+  }
+
+  private fun getOrCreateTranslator(sourceLang: String): Translator? {
+    // P1-8: never (re)create after close().
     if (closed.get()) return null
     translator?.let { return it }
     synchronized(initLock) {
       if (closed.get()) return null
       translator?.let { return it }
       val options = TranslatorOptions.Builder()
-        .setSourceLanguage(TranslateLanguage.GERMAN)
+        .setSourceLanguage(sourceLang)
         .setTargetLanguage(targetTranslateLanguage())
         .build()
       val t = Translation.getClient(options)

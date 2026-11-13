@@ -2,7 +2,10 @@ package com.translator.screen.translate
 
 /** Contract for the German→target translator. All methods are main-safe. */
 interface ITranslationEngine {
-  /** The BCP-47 target language tag this engine translates German into (e.g. "en", "ur"). */
+  /** The BCP-47 source language tag ("auto" for auto-detect, or a specific tag like "de"). */
+  val sourceLanguageTag: String
+
+  /** The BCP-47 target language tag (e.g. "en", "ur"). */
   val targetLanguageTag: String
 
   /** Translate a single source string into [targetLanguageTag]. Returns source unchanged if filtered out. */

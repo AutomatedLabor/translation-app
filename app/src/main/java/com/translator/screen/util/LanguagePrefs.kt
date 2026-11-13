@@ -13,6 +13,17 @@ object LanguagePrefs {
     private const val PREFS = "translator_prefs"
     private const val TARGET_TAG = "target_language_tag"
     const val DEFAULT_TARGET_TAG = "en"
+    private const val SOURCE_TAG = "source_language_tag"
+    const val DEFAULT_SOURCE_TAG = "auto"
+
+    fun getSourceTag(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(SOURCE_TAG, DEFAULT_SOURCE_TAG) ?: DEFAULT_SOURCE_TAG
+
+    fun setSourceTag(context: Context, tag: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(SOURCE_TAG, tag).apply()
+    }
 
     fun getTargetTag(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

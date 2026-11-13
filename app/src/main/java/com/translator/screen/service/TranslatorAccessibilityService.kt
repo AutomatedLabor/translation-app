@@ -82,11 +82,12 @@ class TranslatorAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        engine = MlKitTranslationEngine(LanguagePrefs.getTargetTag(applicationContext))
-            .also { it.warmup() }
+        val sourceTag = LanguagePrefs.getSourceTag(applicationContext)
+        val targetTag = LanguagePrefs.getTargetTag(applicationContext)
+        engine = MlKitTranslationEngine(sourceTag, targetTag).also { it.warmup() }
         overlayManager = OverlayManager(applicationContext) { onOverlayCloseRequested() }
         createNotificationChannel()
-        Log.i(TAG, "Service connected, engine warmed up (target=${LanguagePrefs.getTargetTag(applicationContext)})")
+        Log.i(TAG, "Service connected, engine warmed up ($sourceTag -> $targetTag)")
     }
 
     override fun onDestroy() {
@@ -422,7 +423,21 @@ class TranslatorAccessibilityService : AccessibilityService() {
         }
         Log.i(TAG, "updateTargetLanguage: $current -> $tag")
         engine?.close()
-        engine = MlKitTranslationEngine(tag).also { it.warmup() }
+        engine = MlKitTranslationEngine(LanguagePrefs.getSourceTag(applicationContext), tag).also { it.warmup() }
+    }
+
+    /**
+     * Live-switch the source language (called by MainActivity). (v2.0.1: any-to-any.)
+     */
+    fun updateSourceLanguage(tag: String) {
+        val current = engine?.sourceLanguageTag
+        if (current == tag) {
+            Log.i(TAG, "updateSourceLanguage: already $tag; no-op")
+            return
+        }
+        Log.i(TAG, "updateSourceLanguage: $current -> $tag")
+        engine?.close()
+        engine = MlKitTranslationEngine(tag, LanguagePrefs.getTargetTag(applicationContext)).also { it.warmup() }
     }
 
     // -------------------------------------------------------------------------
