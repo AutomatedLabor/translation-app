@@ -117,7 +117,7 @@ class MlKitTranslationEngine(
         val best = langs.maxByOrNull { it.confidence }
         lang = best?.languageTag?.substringBefore('-')?.lowercase() ?: "und"
         conf = best?.confidence ?: 0f
-        Log.d(TAG, "Language-id result: lang=$lang conf=$conf for '$trimmed'")
+        Log.d(TAG, "Language-id result: lang=$lang conf=$conf (text length=${trimmed.length})")
       } catch (e: Exception) {
         if (e is CancellationException) throw e
         Log.d(TAG, "Language-id failure: ${e.message}; defaulting to translate=true")
@@ -150,17 +150,17 @@ class MlKitTranslationEngine(
       if (closed.get()) return@withContext source
 
       if (!shouldTranslate(source)) {
-        Log.d(TAG, "Skipped by filter: '$source'")
+        Log.d(TAG, "Skipped by filter (length=${source.length})")
         return@withContext source
       }
 
       val key = source.trim().lowercase()
       val cached: String? = synchronized(cache) { cache.get(key) }
       if (cached != null) {
-        Log.d(TAG, "Cache hit: '$key' -> '$cached'")
+        Log.d(TAG, "Cache hit (key length=${key.length})")
         return@withContext cached
       }
-      Log.d(TAG, "Cache miss: '$key'")
+      Log.d(TAG, "Cache miss (key length=${key.length})")
 
       var retriedAfterDownload = false
       var attempt = 0
@@ -171,7 +171,7 @@ class MlKitTranslationEngine(
           val t = getOrCreateTranslator(sourceLang) ?: return@withContext source
           val result = t.translate(source).await()
           synchronized(cache) { cache.put(key, result) }
-          Log.d(TAG, "Translated: '$source' -> '$result'")
+          Log.d(TAG, "Translated (source len=${source.length}, result len=${result.length})")
           return@withContext result
         } catch (e: Exception) {
           if (e is CancellationException) throw e

@@ -223,11 +223,11 @@ class TranslatorAccessibilityService : AccessibilityService() {
                             result == null ->
                                 Log.d(TAG, "Translation skipped: engine null")
                             result == reg.text ->
-                                Log.d(TAG, "Translation unchanged: '${reg.text.take(48)}'")
+                                Log.d(TAG, "Translation unchanged (text length=${reg.text.length})")
                             else ->
                                 Log.d(
                                     TAG,
-                                    "Translation hit: '${reg.text.take(48)}' -> '${result.take(48)}'",
+                                    "Translation hit (text length=${reg.text.length}, result length=${result.length})",
                                 )
                         }
                     }

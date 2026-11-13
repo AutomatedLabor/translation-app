@@ -153,6 +153,7 @@ private fun ScreenTranslatorSetupScreen() {
     var showRestrictedHelp by remember { mutableStateOf(false) }
     var showTargetDialog by remember { mutableStateOf(false) }
     var showSourceDialog by remember { mutableStateOf(false) }
+    var showOnboarding by remember { mutableStateOf(!LanguagePrefs.isOnboardingCompleted(context)) }
 
     /**
      * Live-switch the target language: persist to SharedPreferences, recreate the UI's
@@ -217,6 +218,33 @@ private fun ScreenTranslatorSetupScreen() {
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (showOnboarding) {
+        AlertDialog(
+            onDismissRequest = {
+                LanguagePrefs.setOnboardingCompleted(context)
+                showOnboarding = false
+            },
+            title = { Text("Welcome to Screen Translator") },
+            text = {
+                Column {
+                    Text("This app translates on-screen text from any language to any language — continuously, live, from a Quick Settings tile.\n\nSetup:")
+                    Text("\n1. Enable the Accessibility Service (below)")
+                    Text("2. Choose your Source + Target languages")
+                    Text("3. Download the translation model")
+                    Text("4. Add the 'Translate Screen' tile to Quick Settings")
+                    Text("5. Open any app + tap the tile")
+                    Text("\nOn Android 7-10, manually swipe the shade away after tapping the tile.")
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    LanguagePrefs.setOnboardingCompleted(context)
+                    showOnboarding = false
+                }) { Text("Get started") }
+            }
+        )
     }
 
     Scaffold(

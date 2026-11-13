@@ -33,4 +33,14 @@ object LanguagePrefs {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(TARGET_TAG, tag).apply()
     }
+
+    private const val ONBOARDING_COMPLETED = "onboarding_completed"
+    fun isOnboardingCompleted(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(ONBOARDING_COMPLETED, false)
+
+    fun setOnboardingCompleted(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(ONBOARDING_COMPLETED, true).apply()
+    }
 }
