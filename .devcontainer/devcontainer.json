@@ -1,0 +1,37 @@
+{
+  "name": "Screen Translator (Android + JDK 17)",
+  "image": "mcr.microsoft.com/devcontainers/java:17",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "remoteEnv": {
+    "ANDROID_HOME": "/usr/local/android-sdk",
+    "ANDROID_SDK_ROOT": "/usr/local/android-sdk",
+    "PATH": "/usr/local/android-sdk/platform-tools:/usr/local/android-sdk/cmdline-tools/latest/bin:${containerEnv:PATH}"
+  },
+  "postCreateCommand": "bash .devcontainer/install-android-sdk.sh",
+  "postStartCommand": "echo '✓ Android devcontainer ready — ./gradlew :app:compileDebugKotlin to compile locally (sub-second feedback, no CI round-trip).'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "mathiasfrohlich.kotlin",
+        "fwcd.kotlin",
+        "redhat.java"
+      ],
+      "settings": {
+        "java.configuration.runtimes": [
+          {
+            "name": "JavaSE-17",
+            "path": "/usr/lib/jvm/msopenjdk-17",
+            "default": true
+          }
+        ]
+      }
+    }
+  },
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb",
+    "storage": "32gb"
+  }
+}
