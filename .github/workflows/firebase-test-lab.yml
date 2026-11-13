@@ -1,0 +1,107 @@
+# Firebase Test Lab — device-matrix instrumentation testing
+#
+# This workflow runs the app's instrumented tests on REAL device configs via Firebase
+# Test Lab (Spark plan: 30 virtual-device runs / 10 physical-device runs per day, free).
+# It complements the GitHub Actions API-30 emulator (.github/workflows/build.yml's
+# instrumented-tests job) with a real-device matrix (Pixel / Galaxy, API 24/28/30/33),
+# catching device-specific + old-Android regressions the single emulator misses.
+#
+# === MANUAL SETUP REQUIRED (one time) — the ONE step only you can do ===
+# Firebase project creation needs a Google account + a browser; an agent can't do it.
+# 1. Create a Firebase project: https://console.firebase.google.com (Spark = free).
+# 2. Project settings → Service accounts → generate a new private key → download JSON.
+# 3. Add it as a GitHub Actions secret named FIREBASE_SERVICE_ACCOUNT in
+#    AutomatedLabor/translation-app → Settings → Secrets and variables → Actions.
+# 4. (Optional) add FIREBASE_PROJECT_ID as a secret with the project id.
+# 5. Then manually trigger this workflow (Actions tab → "Firebase Test Lab" → Run
+#    workflow), OR remove the workflow_dispatch-only gate below to run on push.
+#
+# Until step 3 is done, this workflow stays dormant (workflow_dispatch only — it does
+# NOT run on push, so it cannot regress CI). Once the secret is set + you trigger it,
+# it runs the instrumented suite on a real device matrix.
+
+name: Firebase Test Lab
+
+on:
+  workflow_dispatch:   # manual only until FIREBASE_SERVICE_ACCOUNT secret is set
+  # push:              # uncomment to run on every push to main (after setup)
+  #   branches: [ main ]
+
+jobs:
+  firebase-test-lab:
+    runs-on: ubuntu-latest
+    # Gate on the secret being present (avoids a confusing auth failure if triggered
+    # before setup). GitHub doesn't let `if:` read secret values directly, so this
+    # uses a repo VARIABLE (not secret) as the opt-in flag — set
+    # ENABLE_FIREBASE_TEST_LAB=true as a repository variable after adding the secret.
+    if: ${{ vars.ENABLE_FIREBASE_TEST_LAB == 'true' }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407  # v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 platforms;android-30'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build debug APK + androidTest APK
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Authenticate to Google Cloud (Firebase service account)
+        id: auth
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+        uses: google-github-actions/auth@6fc4af4b1454785702b6298765d41413f2622cdd  # v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@6189d56f1798c8d6e2a0ce1a8e35d6b49fbd128b  # v2
+
+      - name: Run instrumented tests on Firebase Test Lab (real device matrix)
+        env:
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          APP="app/build/outputs/apk/debug/app-debug.apk"
+          TEST="app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+          [ -f "$APP" ] || { echo "::error::no debug APK at $APP"; exit 1; }
+          [ -f "$TEST" ] || { echo "::error::no androidTest APK at $TEST"; exit 1; }
+          PROJECT="${FIREBASE_PROJECT_ID:-}"
+          [ -n "$PROJECT" ] || { echo "::error::FIREBASE_PROJECT_ID secret is empty"; exit 1; }
+          # Real-device matrix: Pixel 2 (API 30), Pixel 5 (API 33), + a low-API model.
+          # locale=de so the device UI is German (matches the app's German-source use case).
+          # --use-orchestrator for per-test isolation. --no-performance-metrics to keep it free-tier-fast.
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app "$APP" \
+            --test "$TEST" \
+            --device model=Pixel2,version=30,locale=de,orientation=portrait \
+            --device model=Pixel5,version=33,locale=de,orientation=portrait \
+            --device model=NexusLowRes,version=28,locale=de,orientation=portrait \
+            --use-orchestrator \
+            --no-performance-metrics \
+            --timeout 15m \
+            --project "$PROJECT"
+
+      - name: Upload Firebase Test Lab results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: firebase-test-lab-results
+          path: |
+            target/*/test*/
+            *.xml
+            *.log
+          if-no-files-found: ignore
+          retention-days: 30
