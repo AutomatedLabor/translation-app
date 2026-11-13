@@ -66,7 +66,9 @@ import com.translator.screen.util.LanguagePrefs
 import com.translator.screen.util.TargetLanguages
 import com.translator.screen.translate.ITranslationEngine
 import com.translator.screen.translate.MlKitTranslationEngine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
