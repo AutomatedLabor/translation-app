@@ -17,6 +17,63 @@ Nothing yet.
 
 ---
 
+## [2.1.0] - 2026-11-13
+
+Completes the v2.0 roadmap phases 3-6 (everything achievable without a physical device).
+Same signing key as v1.1.0+ (cert SHA-256 `a0b5e5…7fa2`); existing users can update in
+place. The duplicate `screen-translator` repo (created by mistake in v2.0.0) is archived;
+`translation-app` is the single source of truth.
+
+### Added — Phase 3 (onboarding + dashboard + help)
+- **Live status dashboard card** (top of setup screen): "Live translation: Active/Inactive"
+  (polled 1/s) + current source → target pair.
+- **Help & FAQ card** with a concise usage summary.
+
+### Added — Phase 4 (overlay + history)
+- **Draggable close (✕) button** — drag to reposition within screen bounds; a tap (within
+  touch slop) still closes the overlay.
+- **Auto-hide** — continuous-mode overlay auto-dismisses after 90s of inactivity.
+- **Translation history** — last 50 translations persisted as JSON in `filesDir`
+  (private, never backed up, never uploaded), viewable + clearable in-app. No Room/KSP
+  dependency (avoids the artifact-resolution risk that reverted the v2.0.4 splash).
+
+### Added — Phase 5 (crash reporting + Play Store prep + tests)
+- **Local crash logger** — `Thread.UncaughtExceptionHandler` writes stack traces to
+  `filesDir/crashes/` (bounded to 5, pruned newest-kept). No telemetry; share-as-text
+  from the Crash logs card.
+- **AAB build** in CI (jarsigner-signed, uploaded as an artifact, non-blocking).
+- **Unit tests** for `TranslationHistory` + `CrashLogger` (7 + 3 cases).
+
+### Added — Phase 6 (a11y, widget, notification, splash, docs)
+- **TalkBack** content description on the translation overlay (concatenated translated texts).
+- **Home-screen widget** (1×1 "Translate") — toggles live translation or opens setup.
+- **Notification "Stop" action** — a `BroadcastReceiver` stops live translation from the shade.
+- **Splash screen** via the platform SplashScreen API (pure-XML `windowSplashScreen*` theme
+  attrs, API 31+) — NO `core-splashscreen` dependency (the v2.0.4 splash was reverted
+  because that artifact failed to resolve on CI).
+- **Docs**: `docs/PRIVACY_POLICY.md`, `docs/DATA_SAFETY.md`, `docs/THIRD_PARTY_LICENSES.md`.
+
+### Not done (requires a physical device)
+- Hands-on device testing of the draggable ✕, widget placement, TalkBack, splash animation.
+- Actual Play Console publication (needs a developer account).
+
+---
+
+## [2.0.0]–[2.0.4] - 2026-11-13
+
+Brief summary of the v2.0.x line (full notes in each GitHub Release):
+
+- **2.0.0** — architecture decision (keep AccessibilityService, not MediaProjection —
+  MediaProjection cannot capture FLAG_SECURE windows); diagnostic Toasts at every
+  tile-failure point; new `screen-translator` repo (later archived — see v2.1.0).
+- **2.0.1** — any-to-any language translation + Auto-Detect + Swap (Phase 2).
+- **2.0.2** — first-run onboarding dialog; security fix (no screen content in logcat).
+- **2.0.3** — in-app update check (GitHub Releases API).
+- **2.0.4** — splash screen attempted via `core-splashscreen`, then **reverted** (artifact
+  did not resolve on CI); redone safely in v2.1.0 with the platform SplashScreen API.
+
+---
+
 ## [1.7.0] - 2026-11-13
 
 ### Added

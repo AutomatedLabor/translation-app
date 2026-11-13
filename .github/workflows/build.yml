@@ -103,6 +103,12 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
+      - name: Build release AAB (Play Store bundle)
+        # v2.1.0 Phase 5: produce an Android App Bundle for Play Console upload.
+        # AGP leaves the bundle unsigned (signingConfig=null when CI=true); the next
+        # step signs it with jarsigner (AABs use JAR/v1 signing — apksigner is APK-only).
+        run: ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
       - name: "Zipalign + sign release APKs (v2+v3 for Android 7+)"
         # In CI, AGP leaves the release APK unsigned (signingConfig=null when CI=true) +
         # zipaligned. We sign it here with apksigner forcing v2+v3. v2 is REQUIRED for
@@ -170,6 +176,38 @@ jobs:
           cat apksigner-verify-*.txt > apksigner-verify.txt
           echo "::notice::All $APK_COUNT release variant(s) signing-verified."
 
+      - name: "Sign + verify release AAB (Play Store bundle, non-blocking)"
+        # v2.1.0 Phase 5: sign the .aab with jarsigner (JAR/v1 signing — the only scheme
+        # AABs support; apksigner is APK-only). Play Console re-signs the bundle with the
+        # app's signing key on upload, so this is the upload-key signature.
+        # continue-on-error: an AAB signing failure must NOT break the APK release
+        # pipeline (the APKs are already signed + verified above). The .aab is uploaded as
+        # a separate artifact (if-no-files-found: ignore) so a failure just omits it.
+        continue-on-error: true
+        env:
+          TRANSLATOR_KEYSTORE_PASSWORD: ${{ secrets.TRANSLATOR_KEYSTORE_PASSWORD }}
+          TRANSLATOR_KEY_ALIAS: ${{ secrets.TRANSLATOR_KEY_ALIAS }}
+          TRANSLATOR_KEY_PASSWORD: ${{ secrets.TRANSLATOR_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KS="$RUNNER_TEMP/translator-release.jks"
+          AAB="app/build/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB" ]; then
+            echo "::warning::no release AAB found at $AAB; skipping AAB signing"
+            exit 0
+          fi
+          # Sign to a temp file then move (jarsigner won't overwrite in place reliably).
+          jarsigner -keystore "$KS" \
+            -storepass "$TRANSLATOR_KEYSTORE_PASSWORD" \
+            -keypass "$TRANSLATOR_KEY_PASSWORD" \
+            -signedjar "$AAB.signed" "$AAB" "$TRANSLATOR_KEY_ALIAS"
+          mv "$AAB.signed" "$AAB"
+          jarsigner -verify "$AAB" || { echo "::error::AAB signature verify failed"; exit 1; }
+          # Record the AAB's SHA-256 + cert for the release record.
+          sha256sum "$AAB" | tee "aab-sha256.txt"
+          keytool -printcert -jarfile "$AAB" | grep -E "Owner|SHA-256" | tee "aab-certs.txt" || true
+          echo "AAB signed + verified (jarsigner)"
+
       - name: "Generate SHA-256 sidecars + stage release assets"
         run: |
           set -euo pipefail
@@ -179,9 +217,9 @@ jobs:
           for APK in "$REL"/*.apk; do
             NAME="$(basename "$APK" .apk)"
             case "$NAME" in
-              *arm64-v8a*) ASSET="screen-translator-v2.0.4-arm64-v8a-release" ;;
-              *universal*) ASSET="screen-translator-v2.0.4-universal-release" ;;
-              *)           ASSET="screen-translator-v2.0.4-release" ;;
+              *arm64-v8a*) ASSET="screen-translator-v2.1.0-arm64-v8a-release" ;;
+              *universal*) ASSET="screen-translator-v2.1.0-universal-release" ;;
+              *)           ASSET="screen-translator-v2.1.0-release" ;;
             esac
             ( cd "$REL" && sha256sum "$(basename "$APK")" > "$ASSET.apk.sha256" )
             cp "$APK" "$STAGE/$ASSET.apk"
@@ -189,8 +227,8 @@ jobs:
             echo "staged $ASSET.apk ($(wc -c < "$STAGE/$ASSET.apk") bytes)  sha256: $(awk '{print $1}' "$STAGE/$ASSET.apk.sha256")"
           done
           # Badging from the arm64 variant (primary); fall back to universal.
-          ARM="$STAGE/screen-translator-v2.0.4-arm64-v8a-release.apk"
-          [ -f "$ARM" ] || ARM="$STAGE/screen-translator-v2.0.4-universal-release.apk"
+          ARM="$STAGE/screen-translator-v2.1.0-arm64-v8a-release.apk"
+          [ -f "$ARM" ] || ARM="$STAGE/screen-translator-v2.1.0-universal-release.apk"
           aapt dump badging "$ARM" | head -25 | tee badging.txt
 
       - name: Upload release APKs artifact
@@ -214,6 +252,20 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Upload release AAB artifact (Play Store bundle)
+        # v2.1.0 Phase 5: the signed .aab for Play Console upload. Non-fatal — the AAB
+        # sign step is continue-on-error, so if signing failed this artifact is simply
+        # absent (if-no-files-found: ignore) rather than failing the whole build.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: screen-translator-release-aab
+          path: |
+            app/build/outputs/bundle/release/*.aab
+            aab-sha256.txt
+            aab-certs.txt
+          if-no-files-found: ignore
+          retention-days: 90
+
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -232,19 +284,83 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
-          tag_name: v2.0.4
-          name: "Screen Translator v2.0.4 (splash screen)"
+          tag_name: v2.1.0
+          name: "Screen Translator v2.1.0 (phases 3-6 completion)"
           files: |
-            screen-translator-v2.0.4-arm64-v8a-release.apk
-            screen-translator-v2.0.4-arm64-v8a-release.apk.sha256
-            screen-translator-v2.0.4-universal-release.apk
-            screen-translator-v2.0.4-universal-release.apk.sha256
+            screen-translator-v2.1.0-arm64-v8a-release.apk
+            screen-translator-v2.1.0-arm64-v8a-release.apk.sha256
+            screen-translator-v2.1.0-universal-release.apk
+            screen-translator-v2.1.0-universal-release.apk.sha256
             apksigner-verify.txt
             badging.txt
           body: |
-            # Screen Translator v2.0.1 — any-to-any language translation + auto-detect + swap
+            # Screen Translator v2.1.0 — phases 3-6 completion
 
             Built from commit `${{ github.sha }}`.
+
+            ## What changed in v2.1.0
+
+            This release completes the v2.0 roadmap phases 3-6 (everything achievable
+            without a physical device for hands-on testing).
+
+            ### Phase 3 — onboarding + status dashboard + help
+            - **Live status dashboard.** The setup screen now opens with a Status card
+              showing "Live translation: Active/Inactive" (polled once per second) and the
+              current source → target language pair, so the user always knows whether
+              translation is running.
+            - **Help & FAQ card** with a concise usage summary (tile toggle, ✕ drag,
+              Stop action, auto-hide).
+            - (Onboarding dialog + in-app update check shipped in v2.0.2/v2.0.3.)
+
+            ### Phase 4 — overlay improvements + translation history
+            - **Draggable close button.** The ✕ can now be dragged anywhere on screen
+              ( WindowManager.updateViewLayout) so it does not cover translated content;
+              a tap (movement within touch slop) still closes, a drag repositions.
+            - **Auto-hide.** In continuous mode, the overlay auto-dismisses after 90s of
+              inactivity so it does not linger over a stale screen.
+            - **Translation history** (on-device, private, clearable). The last 50
+              translations are persisted as JSON in `filesDir` (no Room/KSP dependency —
+              avoids the artifact-resolution risk that reverted the v2.0.4 splash). View
+              the 5 most recent in the History card; Clear button wipes the file.
+
+            ### Phase 5 — crash reporting + Play Store prep + tests
+            - **Local crash logger.** A `Thread.UncaughtExceptionHandler` (installed in
+              `App.onCreate`) writes the stack trace to `filesDir/crashes/` (bounded to
+              5 files, pruned newest-kept). No telemetry, no network — the user shares a
+              crash log explicitly via the Crash logs card (share-as-text, no FileProvider).
+            - **AAB (Play Store bundle).** CI now builds + jarsigner-signs a release
+              `.aab` (uploaded as an artifact, non-blocking so an AAB issue cannot break
+              the APK release).
+            - **Unit tests** for `TranslationHistory` (round-trip, dedupe, cap, clear) and
+              `CrashLogger` (write, newest-first, prune).
+
+            ### Phase 6 — a11y, widget, notification action, splash, OSS docs
+            - **TalkBack.** The translation overlay now exposes a contentDescription (the
+              concatenated translated texts) so it is not announced as a silent graphic.
+            - **Home-screen widget.** A 1×1 "Translate" widget toggles live translation
+              (service ready) or opens setup (service not ready).
+            - **Notification Stop action.** The continuous-mode notification has a "Stop"
+              button (via a `BroadcastReceiver`) so the user can stop from the shade
+              without pulling down to the tile.
+            - **Splash screen (redone safely).** Uses the platform SplashScreen API
+              (`windowSplashScreen*` theme attributes, API 31+) — pure XML, NO
+              `androidx.core:core-splashscreen` dependency (that artifact failed to
+              resolve on CI in v2.0.4, which is why the splash was reverted). On API < 31
+              there is no splash (identical to v1.x).
+            - **OSS licenses / privacy policy / data-safety form** added under `docs/`.
+
+            ### Repo hygiene
+            - The duplicate `screen-translator` repo (created by mistake in v2.0.0) is
+              **archived** on GitHub; `translation-app` is the single source of truth.
+            - versionCode 15 → 16, versionName 2.0.4 → 2.1.0. Same signing key
+              (cert SHA-256 `a0b5e5…7fa2`); v1.1.0+ users can update in place.
+
+            ### Not done (requires a physical device — explicitly out of scope here)
+            - Hands-on device testing of the draggable ✕, widget placement, TalkBack
+              reading, and the platform splash animation. CI's instrumented emulator
+              covers the extraction pipeline; these UI behaviours need a real device.
+            - Actual Play Console publication (needs a developer account + the signed AAB
+              uploaded manually). The AAB is produced by CI as an artifact.
 
             ## What changed in v2.0.1
 
@@ -422,8 +538,8 @@ jobs:
 
             | APK | Size | Install on |
             |---|---|---|
-            | `screen-translator-v2.0.4-arm64-v8a-release.apk` | ~22 MB | **Any phone from ~2017** (Pixel, Samsung, OnePlus, Xiaomi, etc. — 64-bit ARM). Try this first. |
-            | `screen-translator-v2.0.4-universal-release.apk` | ~72 MB | 32-bit ARM phones (pre-2017), x86 emulators, rare x86 devices. Fallback. |
+            | `screen-translator-v2.1.0-arm64-v8a-release.apk` | ~22 MB | **Any phone from ~2017** (Pixel, Samsung, OnePlus, Xiaomi, etc. — 64-bit ARM). Try this first. |
+            | `screen-translator-v2.1.0-universal-release.apk` | ~72 MB | 32-bit ARM phones (pre-2017), x86 emulators, rare x86 devices. Fallback. |
 
             ## Install
 
@@ -446,11 +562,11 @@ jobs:
             for CI's proof.
 
             ```
-            apksigner verify --print-certs --verbose screen-translator-v2.0.4-arm64-v8a-release.apk
+            apksigner verify --print-certs --verbose screen-translator-v2.1.0-arm64-v8a-release.apk
             # expect: Verifies, v2=true, v3=true,
             #         Signer #1 certificate DN: CN=Screen Translator Release, O=AutomatedLabor, C=US
             #         Signer #1 certificate SHA-256 digest: a0b5e5f35ee134d2816a24cc467297b3024ea466f1d5d98c0104b3e8b7e27fa2
-            sha256sum -c screen-translator-v2.0.4-arm64-v8a-release.apk.sha256
+            sha256sum -c screen-translator-v2.1.0-arm64-v8a-release.apk.sha256
             ```
 
             ## Verification done by CI

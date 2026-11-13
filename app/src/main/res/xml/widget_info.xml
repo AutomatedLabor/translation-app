@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppWidget provider info (Phase 6). A 1×1 home-screen widget that toggles live
+  translation. updatePeriodMillis=0 (no periodic refresh — the widget is stateless
+  and reacts only to taps). widgetCategory=home_screen (not keyguard).
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_translate"
+    android:minWidth="40dp"
+    android:minHeight="40dp"
+    android:resizeMode="none"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

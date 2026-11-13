@@ -2,6 +2,7 @@ package com.translator.screen.service
 
 import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
+import android.content.Intent
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Handler
@@ -20,6 +21,7 @@ import com.translator.screen.translate.ITranslationEngine
 import com.translator.screen.translate.MlKitTranslationEngine
 import com.translator.screen.util.PackageUtils
 import com.translator.screen.util.LanguagePrefs
+import com.translator.screen.util.TranslationHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -74,6 +76,20 @@ class TranslatorAccessibilityService : AccessibilityService() {
 
     private val continuousHandler = Handler(Looper.getMainLooper())
     private val retranslateRunnable = Runnable { retranslate() }
+
+    // Auto-hide (v2.1.0 Phase 4): if no retranslation happens for [AUTO_HIDE_IDLE_MS]
+    // in continuous mode, the overlay is dismissed so it does not linger over a stale
+    // screen after the user walks away. Reset on each successful retranslate.
+    private val autoHideHandler = Handler(Looper.getMainLooper())
+    private val autoHideRunnable = Runnable {
+        Log.i(TAG, "Auto-hide: continuous mode idle for ${AUTO_HIDE_IDLE_MS}ms; stopping")
+        Toast.makeText(
+            applicationContext,
+            getString(R.string.auto_hide_stopped),
+            Toast.LENGTH_SHORT,
+        ).show()
+        stopContinuousMode()
+    }
 
     // -------------------------------------------------------------------------
     // AccessibilityService lifecycle
@@ -242,6 +258,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
                 Log.i(TAG, "Nothing translated")
                 return@launch
             }
+            logToHistory(target, translated)
             withContext(Dispatchers.Main) {
                 overlayManager?.show(translated)
                 overlayShownTimestampMs = SystemClock.uptimeMillis()
@@ -301,6 +318,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
     /** Stop continuous mode + dismiss the overlay + cancel the notification. */
     fun stopContinuousMode() {
         continuousHandler.removeCallbacks(retranslateRunnable)
+        autoHideHandler.removeCallbacks(autoHideRunnable)
         continuousMode = false
         continuousTargetPackage = null
         cancelContinuousNotification()
@@ -308,14 +326,27 @@ class TranslatorAccessibilityService : AccessibilityService() {
     }
 
     /** Show a persistent notification while continuous (live) mode is active, so the user
-     *  knows translation is running + can see it in the shade. (v1.9.0.) */
+     *  knows translation is running + can see it in the shade. (v1.9.0.)
+     *  v2.1.0: added a "Stop" action button so the user can stop live translation from the
+     *  shade without pulling down to the tile. */
     private fun showContinuousNotification() {
+        val stopIntent = Intent(this, StopTranslationReceiver::class.java)
+            .setAction(StopTranslationReceiver.ACTION_STOP_TRANSLATION)
+        // FLAG_IMMUTABLE is required on API 31+ and safe on older versions.
+        val stopPendingIntent = android.app.PendingIntent.getBroadcast(
+            this, 0, stopIntent, android.app.PendingIntent.FLAG_IMMUTABLE
+        )
         val notification = NotificationCompat.Builder(this, CONTINUOUS_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_translate_tile)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.continuous_mode_active))
             .setOngoing(true)
             .setSilent(true)
+            .addAction(
+                R.drawable.ic_close,
+                getString(R.string.notification_action_stop),
+                stopPendingIntent,
+            )
             .build()
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .notify(CONTINUOUS_NOTIFICATION_ID, notification)
@@ -393,6 +424,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
                 }
                 return@launch
             }
+            logToHistory(target, translated)
             withContext(Dispatchers.Main) {
                 if (initial || overlayManager?.isShowing != true) {
                     overlayManager?.show(translated)
@@ -405,6 +437,8 @@ class TranslatorAccessibilityService : AccessibilityService() {
                     // Smooth in-place update (no dismiss+re-add flicker).
                     overlayManager?.update(translated)
                 }
+                // Reset the idle auto-hide timer on every successful update.
+                scheduleAutoHide()
             }
         }
     }
@@ -515,6 +549,24 @@ class TranslatorAccessibilityService : AccessibilityService() {
         dismissOverlay()
     }
 
+    /**
+     * Persist up to [HISTORY_BATCH_LIMIT] of the most recent translations for this batch
+     * to the on-device history (Phase 4). Called on the background dispatcher; the store
+     * is thread-safe + dedupes consecutive identical entries, so live mode does not flood
+     * the buffer with the same translated chat message.
+     */
+    private fun logToHistory(appPackage: String, translated: List<TranslatedTextRegion>) {
+        translated.take(HISTORY_BATCH_LIMIT).forEach { reg ->
+            TranslationHistory.add(applicationContext, reg.text, reg.translated, appPackage)
+        }
+    }
+
+    /** (Re)schedule the continuous-mode idle auto-hide. Main-thread only. */
+    private fun scheduleAutoHide() {
+        autoHideHandler.removeCallbacks(autoHideRunnable)
+        autoHideHandler.postDelayed(autoHideRunnable, AUTO_HIDE_IDLE_MS)
+    }
+
     private fun isEngineReady(): Boolean = engine != null
 
     companion object {
@@ -523,6 +575,8 @@ class TranslatorAccessibilityService : AccessibilityService() {
         private const val CONTINUOUS_DEBOUNCE_MS = 400L
         private const val CONTINUOUS_NOTIFICATION_CHANNEL_ID = "screen_translator_continuous"
         private const val CONTINUOUS_NOTIFICATION_ID = 1
+        private const val HISTORY_BATCH_LIMIT = 5
+        private const val AUTO_HIDE_IDLE_MS = 90_000L
 
         @Volatile
         var instance: TranslatorAccessibilityService? = null

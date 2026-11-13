@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v2.1.0 (Phase 6): platform SplashScreen API (Android 12+ / API 31+).
+
+  This is a PURE-XML splash — NO androidx.core:core-splashscreen dependency (that artifact
+  failed to resolve on CI in v2.0.4, which is why the splash was reverted). The
+  windowSplashScreen* attributes are framework attrs added in API 31.
+
+  Why values-v31/ and not values/?: placing these attrs in a values-v31/ overlay guarantees
+  they are applied ONLY on API 31+ devices. On API 24-30 the overlay is not selected, so
+  the theme resolves to values/themes.xml (the base) — no reference to attrs that don't
+  exist on those API levels, zero risk to the app's Android 7+ install base. (Canonical
+  pattern; avoids relying on older frameworks silently ignoring unknown attr IDs.)
+
+  The style re-declares the base attrs + adds the splash attrs, so on API 31+ this version
+  fully replaces the base. On API < 31 the base (values/themes.xml) is used → no splash,
+  identical to v1.x.
+-->
+<resources>
+    <style name="Theme.ScreenTranslator" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/md_theme_light_background</item>
+        <item name="android:windowSplashScreenBackground">@color/md_theme_light_primary</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/md_theme_light_onPrimary</item>
+    </style>
+</resources>

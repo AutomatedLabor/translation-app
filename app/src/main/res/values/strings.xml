@@ -38,4 +38,22 @@
     <string name="diag_no_content">Target window has no readable content.</string>
     <string name="diag_no_text">No text found on screen.</string>
     <string name="diag_nothing_translated">Nothing to translate — is the model downloaded? Is the text in the source language?</string>
+
+    <!-- v2.1.0 -->
+    <string name="notification_action_stop">Stop</string>
+    <string name="auto_hide_stopped">Live translation stopped after inactivity.</string>
+    <string name="overlay_empty_description">No translations shown.</string>
+    <string name="card_status_title">Status</string>
+    <string name="card_status_live_active">Live translation: Active</string>
+    <string name="card_status_live_inactive">Live translation: Inactive</string>
+    <string name="card_status_current_pair">Translating: %1$s → %2$s</string>
+    <string name="card_help_title">Help &amp; FAQ</string>
+    <string name="card_help_body">Tap the Quick Settings tile once to start live translation. Tap the ✕ (or the tile again, or the Stop notification action) to stop. Drag the ✕ to move it out of the way. The overlay auto-hides after 90s of inactivity.</string>
+    <string name="card_history_title">Recent translations</string>
+    <string name="card_history_empty">No translations yet — open an app and tap the tile.</string>
+    <string name="card_history_clear">Clear history</string>
+    <string name="card_crash_title">Crash logs</string>
+    <string name="card_crash_none">No crashes recorded.</string>
+    <string name="card_crash_share">Share latest crash log</string>
+    <string name="widget_translate_label">Translate</string>
 </resources>

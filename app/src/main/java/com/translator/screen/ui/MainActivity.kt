@@ -42,6 +42,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -64,9 +65,12 @@ import com.translator.screen.R
 import com.translator.screen.service.TranslatorAccessibilityService
 import com.translator.screen.util.LanguagePrefs
 import com.translator.screen.util.TargetLanguages
+import com.translator.screen.util.TranslationHistory
+import com.translator.screen.util.CrashLogger
 import com.translator.screen.translate.ITranslationEngine
 import com.translator.screen.translate.MlKitTranslationEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -159,6 +163,20 @@ private fun ScreenTranslatorSetupScreen() {
     var showOnboarding by remember { mutableStateOf(!LanguagePrefs.isOnboardingCompleted(context)) }
     var updateAvailable by remember { mutableStateOf<String?>(null) }
 
+    // v2.1.0 Phase 3: live status dashboard + history + crash logs.
+    var liveActive by remember { mutableStateOf(false) }
+    var history by remember { mutableStateOf<List<TranslationHistory.Entry>>(emptyList()) }
+    var crashFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+
+    // Poll the overlay/continuous-mode state once per second so the Status card reflects
+    // the user tapping the tile / widget / Stop action in near-real-time.
+    LaunchedEffect(Unit) {
+        while (true) {
+            liveActive = TranslatorAccessibilityService.instance?.isOverlayShowing() == true
+            delay(1000)
+        }
+    }
+
     /**
      * Live-switch the target language: persist to SharedPreferences, recreate the UI's
      * test engine, reset the model-status + test output, and tell the accessibility
@@ -242,6 +260,9 @@ private fun ScreenTranslatorSetupScreen() {
                     }
                     modelDownloaded = ready
                 }
+                // v2.1.0 Phase 3/5: refresh the history + crash-log dashboards on resume.
+                history = TranslationHistory.all(context)
+                crashFiles = CrashLogger.crashFiles(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -306,6 +327,44 @@ private fun ScreenTranslatorSetupScreen() {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // v2.1.0 Phase 3: live status dashboard (always-visible summary at the top).
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.card_status_title),
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (liveActive) {
+                                    stringResource(R.string.card_status_live_active)
+                                } else {
+                                    stringResource(R.string.card_status_live_inactive)
+                                },
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            StatusChip(enabled = liveActive)
+                        }
+                        Text(
+                            text = stringResource(
+                                R.string.card_status_current_pair,
+                                TargetLanguages.displayFor(sourceTag),
+                                TargetLanguages.displayFor(targetTag),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            }
+
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -556,6 +615,101 @@ private fun ScreenTranslatorSetupScreen() {
                         )
                         Text(
                             text = stringResource(R.string.card_tile_body),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            }
+
+            // v2.1.0 Phase 4: recent translations history (on-device, private, clearable).
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.card_history_title),
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        if (history.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.card_history_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        } else {
+                            Column(modifier = Modifier.padding(top = 8.dp)) {
+                                history.takeLast(5).forEach { entry ->
+                                    Text(
+                                        text = "${entry.sourceText.take(40)} → ${entry.translatedText.take(60)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                TranslationHistory.clear(context)
+                                history = emptyList()
+                            },
+                            enabled = history.isNotEmpty(),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Text(stringResource(R.string.card_history_clear))
+                        }
+                    }
+                }
+            }
+
+            // v2.1.0 Phase 5: local crash logs (count + share-as-text; no FileProvider).
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.card_crash_title),
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        if (crashFiles.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.card_crash_none),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        } else {
+                            Text(
+                                text = "${crashFiles.size} crash log(s) recorded — newest: ${crashFiles.first().name}",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    val content = runCatching { crashFiles.first().readText() }.getOrDefault("")
+                                    val share = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "Screen Translator crash log")
+                                        putExtra(Intent.EXTRA_TEXT, content)
+                                    }
+                                    context.startActivity(Intent.createChooser(share, "Share crash log"))
+                                },
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text(stringResource(R.string.card_crash_share))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // v2.1.0 Phase 3: Help & FAQ.
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = stringResource(R.string.card_help_title),
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            text = stringResource(R.string.card_help_body),
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 8.dp)
                         )

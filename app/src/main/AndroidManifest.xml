@@ -57,6 +57,30 @@
                 android:value="true" />
         </service>
 
+        <!-- v2.1.0 Phase 6: target for the continuous-mode notification "Stop" action.
+             Not exported — only the app's own PendingIntent broadcasts to it. -->
+        <receiver
+            android:name=".service.StopTranslationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.translator.screen.STOP_TRANSLATION" />
+            </intent-filter>
+        </receiver>
+
+        <!-- v2.1.0 Phase 6: 1x1 home-screen "Translate" widget. Exported because the
+             system AppWidgetService must be able to deliver APPWIDGET_UPDATE. The widget
+             toggles live translation (service ready) or opens setup (service not ready). -->
+        <receiver
+            android:name=".widget.TranslateWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>

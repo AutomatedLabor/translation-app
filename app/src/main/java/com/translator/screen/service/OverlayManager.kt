@@ -16,10 +16,12 @@ import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import com.translator.screen.R
 import com.translator.screen.extract.TranslatedTextRegion
+import kotlin.math.abs
 
 /**
  * Owns two [WindowManager] windows:
@@ -57,6 +59,9 @@ class OverlayManager(
     private var closeView: CloseButtonView? = null
     private var translationParams: LayoutParams? = null
     private var closeParams: LayoutParams? = null
+
+    /** Side length of the draggable close (✕) button, in px. (v2.1.0: drag.) */
+    private val closeButtonSize = 48.dp
 
     private val darkTheme: Boolean
         get() =
@@ -173,15 +178,18 @@ class OverlayManager(
         }
 
     private fun buildCloseParams(): LayoutParams {
-        val size = 48.dp
+        val size = closeButtonSize
         return LayoutParams().apply {
             type = LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
             format = PixelFormat.TRANSLUCENT
             flags = LayoutParams.FLAG_NOT_FOCUSABLE
             width = size
             height = size
-            gravity = Gravity.TOP or Gravity.END
-            x = 0
+            // v2.1.0: TOP|START + explicit x/y so the button can be dragged (updateViewLayout
+            // mutates x/y). Initial position = top-right corner (same visual as the old
+            // TOP|END x=0 placement) so existing users see no change until they drag.
+            gravity = Gravity.TOP or Gravity.START
+            x = (screenWidth - size).coerceAtLeast(0)
             y = 0
             // Match the translation layer's cutout mode so the button isn't inset away
             // from the translation card's top-end on punch-hole devices. (P1-7.)
@@ -202,10 +210,27 @@ class OverlayManager(
         private val darkTheme: Boolean,
     ) : View(context) {
 
+        init {
+            // v2.1.0 (Phase 6): give TalkBack a readable description of the overlay's
+            // contents (the translated texts), so the overlay is not announced as a
+            // silent graphic. Updated in [updateRegions] as the live text changes.
+            contentDescription = buildDescription()
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+
         /** Smoothly replace the regions + redraw, without dismiss+re-add (no flicker). */
         fun updateRegions(newRegions: List<TranslatedTextRegion>) {
             regions = newRegions
+            contentDescription = buildDescription()
             invalidate()
+        }
+
+        /** Concatenate the translated texts into one TalkBack-readable string. */
+        private fun buildDescription(): String {
+            if (regions.isEmpty()) {
+                return getContext().getString(R.string.overlay_empty_description)
+            }
+            return regions.joinToString(separator = ". ") { it.translated.trim() }
         }
 
         private val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -299,8 +324,13 @@ class OverlayManager(
     }
 
     /**
-     * A 48dp circular close button. Hosted in its own tappable overlay window
+     * A circular close button. Hosted in its own tappable overlay window
      * (FLAG_NOT_FOCUSABLE only — touch events reach this view).
+     *
+     * v2.1.0 (Phase 4): the button is **draggable**. A tap (movement within
+     * [touchSlop]) closes the overlay; a drag repositions the button within the screen
+     * bounds (via `WindowManager.updateViewLayout`) and does NOT close, so the user can
+     * move the ✕ out of the way of translated content.
      */
     private inner class CloseButtonView(context: Context) : View(context) {
 
@@ -324,8 +354,17 @@ class OverlayManager(
         private val c24 = 24.dp.toFloat()
         private val c36 = 36.dp.toFloat()
 
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+
+        // Drag state. A tap (movement < touchSlop) closes; a drag repositions + does not.
+        private var dragStartRawX = 0f
+        private var dragStartRawY = 0f
+        private var dragStartParamsX = 0
+        private var dragStartParamsY = 0
+        private var isDragging = false
+
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            setMeasuredDimension(48.dp, 48.dp)
+            setMeasuredDimension(closeButtonSize, closeButtonSize)
         }
 
         override fun onDraw(canvas: Canvas) {
@@ -336,8 +375,43 @@ class OverlayManager(
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (event.action == MotionEvent.ACTION_UP) {
-                onCloseRequested()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    dragStartRawX = event.rawX
+                    dragStartRawY = event.rawY
+                    dragStartParamsX = closeParams?.x ?: 0
+                    dragStartParamsY = closeParams?.y ?: 0
+                    isDragging = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - dragStartRawX
+                    val dy = event.rawY - dragStartRawY
+                    if (!isDragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        isDragging = true
+                    }
+                    if (isDragging) {
+                        val params = closeParams ?: return true
+                        val maxX = (screenWidth - closeButtonSize).coerceAtLeast(0)
+                        val maxY = (screenHeight - closeButtonSize).coerceAtLeast(0)
+                        params.x = (dragStartParamsX + dx.toInt()).coerceIn(0, maxX)
+                        params.y = (dragStartParamsY + dy.toInt()).coerceIn(0, maxY)
+                        try {
+                            windowManager.updateViewLayout(this, params)
+                        } catch (_: IllegalArgumentException) {
+                            // View not attached (dismissed mid-drag); ignore.
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging) {
+                        // A tap (no movement beyond slop) — close the overlay.
+                        onCloseRequested()
+                    }
+                    isDragging = false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
+                }
             }
             // Consume every event so the overlay keeps receiving the gesture stream.
             return true
