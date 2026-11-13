@@ -24,8 +24,8 @@ android {
         applicationId = "com.translator.screen"
         minSdk = 24
         targetSdk = 35
-        versionCode = 14
-        versionName = "2.0.3"
+        versionCode = 15
+        versionName = "2.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -158,6 +158,7 @@ dependencies {
     implementation(libs.mlkit.language.id)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation("androidx.core:core-splashscreen:1.0.1")
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
