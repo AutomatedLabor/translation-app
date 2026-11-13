@@ -557,7 +557,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
      */
     private fun logToHistory(appPackage: String, translated: List<TranslatedTextRegion>) {
         translated.take(HISTORY_BATCH_LIMIT).forEach { reg ->
-            TranslationHistory.add(applicationContext, reg.text, reg.translated, appPackage)
+            TranslationHistory.add(applicationContext, reg.source.text, reg.translated, appPackage)
         }
     }
 
