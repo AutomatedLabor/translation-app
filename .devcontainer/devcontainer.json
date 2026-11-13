@@ -2,7 +2,8 @@
   "name": "Screen Translator (Android + JDK 17)",
   "image": "mcr.microsoft.com/devcontainers/java:17",
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": { "version": "latest" }
   },
   "remoteEnv": {
     "ANDROID_HOME": "/usr/local/android-sdk",
